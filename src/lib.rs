@@ -6,10 +6,10 @@ use std::array::from_fn;
 
 pub type F = f64;
 
-fn search_sorted<const N: usize>(
-    v: &[usize; N],
+fn search_sorted<I: Ord, const N: usize>(
+    v: &[I; N],
     v_ord: &[usize; N],
-    tmp: &[usize; N * 2],
+    tmp: &[I; N * 2],
 ) -> [usize; N * 2]
 where
     [(); N * 2]:,
@@ -32,38 +32,35 @@ where
     cdf_idx.map(|i| sorted_cdf[i] / sum)
 }
 
-fn dist<const N: usize>(cdf_a: &[F; N * 2], cdf_b: &[F; N * 2], deltas: &[usize; N * 2 - 1]) -> F
+fn dist<const N: usize>(cdf_a: &[F; N * 2], cdf_b: &[F; N * 2], deltas: &[F; N * 2 - 1]) -> F
 where
     [(); N * 2]:,
     [(); N * 2 - 1]:,
 {
     (0..deltas.len())
-        .map(|i| (cdf_a[i] - cdf_b[i]).abs() * deltas[i] as F)
+        .map(|i| (cdf_a[i] - cdf_b[i]).abs() * deltas[i])
         .sum::<F>()
 }
 
 /// A swizzled wasserstein distance for finite discrete distributions.
-pub fn wasserstein<const N: usize>(
+pub fn wasserstein<I: Ord + Copy, const N: usize>(
     a: &[F; N],
-    a_idxs: &[usize; N],
+    a_idxs: &[I; N],
     b: &[F; N],
-    b_idxs: &[usize; N],
+    b_idxs: &[I; N],
+    idx_dist: impl Fn(I, I) -> F,
 ) -> F
 where
     [(); N + 1]:,
     [(); N * 2]:,
     [(); N * 2 - 1]:,
 {
-    let mut tmp: [usize; N * 2] = [0; N * 2];
-    for i in 0..N {
-        tmp[i] = a_idxs[i];
-        tmp[i + N] = b_idxs[i];
-    }
+    let mut tmp: [I; N * 2] = from_fn(|i| if i < N { a_idxs[i] } else { b_idxs[i - N] });
     tmp.sort_unstable();
 
-    let mut delta: [usize; _] = [0; N * 2 - 1];
+    let mut delta: [F; _] = [0.; N * 2 - 1];
     for i in 0..tmp.len() - 1 {
-        delta[i] = tmp[i + 1] - tmp[i];
+        delta[i] = idx_dist(tmp[i + 1], tmp[i]);
     }
 
     let mut a_ord: [usize; N] = from_fn(|i| i);
@@ -81,10 +78,16 @@ where
 
 #[test]
 fn test_wasserstein() {
-    let w = wasserstein(&[0.25; 4], &[0, 1, 2, 3], &[0.25; 4], &[0, 1, 2, 3]);
+    let w = wasserstein(
+        &[0.25; 4],
+        &[0, 1, 2, 3],
+        &[0.25; 4],
+        &[0, 1, 2, 3],
+        |l, r| (l - r) as F,
+    );
     assert_eq!(w, 0.);
 
-    let w = wasserstein(&[1.], &[0], &[1.], &[1]);
+    let w = wasserstein(&[1.], &[0], &[1.], &[1], |l, r| (l - r) as F);
     assert_eq!(w, 1.);
 
     let w = wasserstein(
@@ -92,6 +95,7 @@ fn test_wasserstein() {
         &[0, 1, 2, 3],
         &[4., 1., 1., 1.],
         &[0, 2, 3, 5],
+        |l, r| (l - r) as F,
     );
     assert!((w - 0.571428).abs() < 1e-3);
 }
