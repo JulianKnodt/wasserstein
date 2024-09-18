@@ -97,5 +97,26 @@ fn test_wasserstein() {
         &[0, 2, 3, 5],
         |l, r| (l - r) as F,
     );
-    assert!((w - 0.571428).abs() < 1e-3);
+    assert!((w - 0.571428).abs() < 1e-3, "{w}");
+}
+
+#[test]
+fn test_binary_wasserstein_distance() {
+    let w = wasserstein(
+        &[1.],
+        &[0],
+        &[1.],
+        &[100],
+        |l, r| if l == r { 0. } else { 1. },
+    );
+    assert_eq!(w, 1.);
+
+    let w = wasserstein(
+        &[7.],
+        &[0],
+        &[7.],
+        &[100],
+        |l, r| if l == r { 0. } else { 1. },
+    );
+    assert_eq!(w, 1.);
 }
