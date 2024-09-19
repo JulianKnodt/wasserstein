@@ -6,21 +6,25 @@ use std::array::from_fn;
 
 pub type F = f64;
 
-fn search_sorted<I: Ord, const N: usize>(
+fn search_sorted<I: Ord, const N: usize, const M: usize>(
     v: &[I; N],
     v_ord: &[usize; N],
-    tmp: &[I; N * 2],
-) -> [usize; N * 2]
+    tmp: &[I; N + M],
+) -> [usize; N + M]
 where
-    [(); N * 2]:,
+    [(); N + M]:,
 {
     from_fn(|i| v_ord.iter().position(|&idx| v[idx] > tmp[i]).unwrap_or(N))
 }
 
-fn compute_cdf<const N: usize>(w: &[F; N], ord: &[usize; N], cdf_idx: &[usize; N * 2]) -> [F; N * 2]
+fn compute_cdf<const N: usize, const M: usize>(
+    w: &[F; N],
+    ord: &[usize; N],
+    cdf_idx: &[usize; N + M],
+) -> [F; N + M]
 where
     [(); N + 1]:,
-    [(); N * 2]:,
+    [(); N + M]:,
 {
     let ord_w = ord.map(|i| w[i]);
 
@@ -32,10 +36,33 @@ where
     cdf_idx.map(|i| sorted_cdf[i] / sum)
 }
 
-fn dist<const N: usize>(cdf_a: &[F; N * 2], cdf_b: &[F; N * 2], deltas: &[F; N * 2 - 1]) -> F
+fn compute_cdf_opp<const N: usize, const M: usize>(
+    w: &[F; M],
+    ord: &[usize; M],
+    cdf_idx: &[usize; N + M],
+) -> [F; N + M]
 where
-    [(); N * 2]:,
-    [(); N * 2 - 1]:,
+    [(); N + 1]:,
+    [(); N + M]:,
+{
+    let ord_w = ord.map(|i| w[i]);
+
+    let mut sorted_cdf = [0.; N + 1];
+    for (i, w) in ord_w.into_iter().enumerate() {
+        sorted_cdf[i + 1] = w + sorted_cdf[i];
+    }
+    let sum = sorted_cdf.last().unwrap();
+    cdf_idx.map(|i| sorted_cdf[i] / sum)
+}
+
+fn dist<const N: usize, const M: usize>(
+    cdf_a: &[F; N + M],
+    cdf_b: &[F; N + M],
+    deltas: &[F; N + M - 1],
+) -> F
+where
+    [(); N + M]:,
+    [(); N + M - 1]:,
 {
     (0..deltas.len())
         .map(|i| (cdf_a[i] - cdf_b[i]).abs() * deltas[i])
@@ -43,35 +70,41 @@ where
 }
 
 /// A swizzled wasserstein distance for finite discrete distributions.
-pub fn wasserstein<I: Ord + Copy, const N: usize>(
+pub fn wasserstein<I: Ord + Copy, const N: usize, const M: usize>(
     a: &[F; N],
     a_idxs: &[I; N],
-    b: &[F; N],
-    b_idxs: &[I; N],
+    b: &[F; M],
+    b_idxs: &[I; M],
     idx_dist: impl Fn(I, I) -> F,
 ) -> F
 where
     [(); N + 1]:,
-    [(); N * 2]:,
-    [(); N * 2 - 1]:,
+    [(); N + M]:,
+    [(); N + M - 1]:,
 {
-    let mut tmp: [I; N * 2] = from_fn(|i| if i < N { a_idxs[i] } else { b_idxs[i - N] });
+    let mut tmp: [I; N + M] = from_fn(|i| if i < N { a_idxs[i] } else { b_idxs[i - N] });
     tmp.sort_unstable();
 
-    let mut delta: [F; _] = [0.; N * 2 - 1];
+    let mut delta: [F; _] = [0.; N + M - 1];
     for i in 0..tmp.len() - 1 {
         delta[i] = idx_dist(tmp[i + 1], tmp[i]);
     }
 
     let mut a_ord: [usize; N] = from_fn(|i| i);
     a_ord.sort_unstable_by_key(|&i| a_idxs[i]);
-    let cdf_idx_a = search_sorted(a_idxs, &a_ord, &tmp);
+    let cdf_idx_a: [usize; N + M] = search_sorted(a_idxs, &a_ord, &tmp);
     let cdf_a = compute_cdf(a, &a_ord, &cdf_idx_a);
 
-    let mut b_ord: [usize; N] = from_fn(|i| i);
+    let mut b_ord: [usize; M] = from_fn(|i| i);
     b_ord.sort_unstable_by_key(|&i| b_idxs[i]);
-    let cdf_idx_b = search_sorted(b_idxs, &b_ord, &tmp);
-    let cdf_b = compute_cdf(b, &b_ord, &cdf_idx_b);
+    let cdf_idx_b: [usize; N + M] = from_fn(|i| {
+        b_ord
+            .iter()
+            .position(|&idx| b_idxs[idx] > tmp[i])
+            .unwrap_or(M)
+    });
+
+    let cdf_b = compute_cdf_opp(b, &b_ord, &cdf_idx_b);
 
     dist(&cdf_a, &cdf_b, &delta)
 }
